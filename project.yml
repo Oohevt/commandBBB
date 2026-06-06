@@ -1,0 +1,35 @@
+name: CommandB
+options:
+  bundleIdPrefix: com.oohevt
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+  defaultConfig: Debug
+
+configs:
+  Debug: debug
+  Release: release
+
+targets:
+  CommandB:
+    type: application
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - path: Sources/CommandB
+    resources:
+      - path: Resources/Assets.xcassets
+    info:
+      path: Resources/Info.plist
+      properties:
+        LSUIElement: true
+        NSPrincipalClass: NSApplication
+    entitlements:
+      path: Resources/CommandB.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.oohevt.commandb
+        SWIFT_VERSION: "5.9"
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: YES
