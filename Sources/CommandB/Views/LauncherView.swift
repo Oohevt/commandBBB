@@ -4,55 +4,63 @@ import UniformTypeIdentifiers
 
 struct LauncherView: View {
     @EnvironmentObject private var store: AppStore
-
-    // Cursor x within the row (.local space) drives Dock-style magnification.
     @State private var hoverX: CGFloat? = nil
-    // Index currently being dragged for reorder.
-    @State private var dragging: Int? = nil
+    @State private var draggingID: UUID? = nil
 
     private let slotW: CGFloat = 76
     private let spacing: CGFloat = 8
     private let hPad: CGFloat = 22
+    private let vPad: CGFloat = 18
+    private var step: CGFloat { slotW + spacing }
+
+    // Animation duration for neighbour reorder. Must be deterministic (not
+    // spring) so we know exactly when the animation is done before revealing
+    // the dragged icon. Spring(response: 0.28) takes ~300ms to settle; a
+    // timed curve lets us schedule the reveal precisely.
+    fileprivate static let reorderDuration: TimeInterval = 0.18
 
     private func centerX(_ i: Int) -> CGFloat {
-        hPad + CGFloat(i) * (slotW + spacing) + slotW / 2
+        hPad + CGFloat(i) * step + slotW / 2
     }
 
-    // Gaussian falloff: hovered icon biggest, neighbours taper off.
     private func scaleFor(_ i: Int) -> CGFloat {
+        if draggingID != nil { return 1 }
         guard let hx = hoverX else { return 1 }
         let d = centerX(i) - hx
-        let sigma = (slotW + spacing) * 0.7
+        let sigma = step * 0.7
         return 1 + 0.5 * exp(-(d * d) / (2 * sigma * sigma))
     }
 
     var body: some View {
         HStack(spacing: spacing) {
-            ForEach(0..<8, id: \.self) { index in
-                if index < store.apps.count {
-                    let s = scaleFor(index)
-                    AppSlotButton(
-                        item: store.apps[index],
-                        index: index,
-                        scale: s,
-                        dragging: $dragging
-                    )
-                    .zIndex(Double(s))  // magnified icon overlaps neighbours
-                } else {
-                    EmptySlotButton()
-                }
+            ForEach(Array(store.apps.enumerated()), id: \.element.id) { index, item in
+                let s = scaleFor(index)
+                AppSlotButton(item: item, index: index, scale: s, draggingID: $draggingID)
+            }
+            ForEach(store.apps.count..<8, id: \.self) { _ in
+                EmptySlotButton()
             }
         }
         .padding(.horizontal, hPad)
-        .padding(.vertical, 18)
+        .padding(.vertical, vPad)
+        // Neighbour reorder: easeOut with a fixed duration so the reveal
+        // delay below can guarantee the animation has finished.
+        .animation(.easeOut(duration: Self.reorderDuration), value: store.apps.map(\.id))
+        .animation(.easeOut(duration: 0.10), value: hoverX)
         .onContinuousHover(coordinateSpace: .local) { phase in
             switch phase {
             case .active(let p): hoverX = p.x
             case .ended: hoverX = nil
             }
         }
-        .animation(.easeOut(duration: 0.10), value: hoverX)
+        // Reset drag state whenever the panel hides (Esc / outside click /
+        // keyboard shortcut). Without this, a cancelled drag leaves the
+        // dragged slot permanently invisible.
+        .onReceive(NotificationCenter.default.publisher(for: .hideLauncher)) { _ in
+            draggingID = nil
+        }
     }
+
 }
 
 // MARK: - Filled slot
@@ -61,12 +69,9 @@ struct AppSlotButton: View {
     let item: AppItem
     let index: Int
     let scale: CGFloat
-    @Binding var dragging: Int?
+    @Binding var draggingID: UUID?
 
     var body: some View {
-        // Size-driven magnification (what Dock does): the frame itself grows,
-        // so the icon re-rasterizes at the exact display size every step.
-        // scaleEffect would stretch an already-rasterized texture — blurry.
         let side = 54 * scale
         Button {
             AppStore.shared.launch(item)
@@ -89,11 +94,20 @@ struct AppSlotButton: View {
         }
         .buttonStyle(.plain)
         .frame(width: 76, height: 76)
+        .opacity(draggingID == item.id ? 0 : 1)
         .onDrag {
-            dragging = index
-            return NSItemProvider(object: String(index) as NSString)
+            draggingID = item.id
+            return NSItemProvider(object: item.id.uuidString as NSString)
+        } preview: {
+            Image(nsImage: item.icon)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 54, height: 54)
+                .clipShape(RoundedRectangle(cornerRadius: 13))
+                .shadow(color: .black.opacity(0.3), radius: 10, y: 5)
         }
-        .onDrop(of: [UTType.text], delegate: SlotDropDelegate(toIndex: index, dragging: $dragging))
+        .onDrop(of: [UTType.text],
+                delegate: SlotDropDelegate(toIndex: index, draggingID: $draggingID))
         .contextMenu {
             Button(item.unread ? "标记为已读" : "标记为未读") {
                 AppStore.shared.setUnread(!item.unread, at: index)
@@ -105,15 +119,44 @@ struct AppSlotButton: View {
     }
 }
 
-// MARK: - Empty slot (icon-only "+")
+// MARK: - Drag-to-reorder
+
+struct SlotDropDelegate: DropDelegate {
+    let toIndex: Int
+    @Binding var draggingID: UUID?
+
+    func dropEntered(info: DropInfo) {
+        guard let id = draggingID,
+              let from = AppStore.shared.apps.firstIndex(where: { $0.id == id }),
+              from != toIndex else { return }
+        AppStore.shared.swapSlots(from, toIndex)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        AppStore.shared.save()
+        // Delay = reorder animation duration + preview fade buffer.
+        // If we reveal immediately or too early:
+        //   (a) animation mid-flight → icon appears at ghost position
+        //   (b) system preview still visible → two icons overlap
+        let delay = LauncherView.reorderDuration + 0.08
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            withAnimation(.easeIn(duration: 0.08)) { draggingID = nil }
+        }
+        return true
+    }
+}
+
+// MARK: - Empty slot
 
 struct EmptySlotButton: View {
     @State private var isHovered = false
 
     var body: some View {
-        Button {
-            pickAndAdd()
-        } label: {
+        Button { pickAndAdd() } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: 13)
                     .strokeBorder(
@@ -131,29 +174,6 @@ struct EmptySlotButton: View {
         .onHover { isHovered = $0 }
         .animation(.spring(response: 0.18, dampingFraction: 0.65), value: isHovered)
         .frame(width: 76, height: 76)
-    }
-}
-
-// MARK: - Drag-to-reorder
-
-struct SlotDropDelegate: DropDelegate {
-    let toIndex: Int
-    @Binding var dragging: Int?
-
-    func dropEntered(info: DropInfo) {
-        guard let from = dragging, from != toIndex else { return }
-        AppStore.shared.move(from: from, to: toIndex)
-        dragging = toIndex   // dragged item now lives at this slot
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        dragging = nil
-        AppStore.shared.save()   // persist the final order once, not per slot
-        return true
     }
 }
 

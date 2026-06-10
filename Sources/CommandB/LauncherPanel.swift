@@ -5,8 +5,12 @@ final class LauncherPanel: NSPanel {
     private var globalMonitor: Any?
     private var isTransitioning = false
 
-    // Transparent margin around the card, giving the custom shadow room to render
-    private let margin: CGFloat = 36
+    // Transparent margin around the card, giving the custom shadow room to render.
+    // Exposed as static so LauncherView can convert NSEvent.mouseLocation to the
+    // hosting-view coordinate space without holding a reference to the panel.
+    static let margin: CGFloat = 36
+    static weak var current: LauncherPanel?
+
     private let cornerRadius: CGFloat = 28
 
     init() {
@@ -14,8 +18,9 @@ final class LauncherPanel: NSPanel {
             rootView: LauncherView().environmentObject(AppStore.shared)
         )
         let cardSize = hosting.fittingSize
-        let winSize = NSSize(width: cardSize.width + margin * 2,
-                             height: cardSize.height + margin * 2)
+        let m = Self.margin
+        let winSize = NSSize(width: cardSize.width + m * 2,
+                             height: cardSize.height + m * 2)
 
         super.init(
             contentRect: NSRect(origin: .zero, size: winSize),
@@ -34,26 +39,22 @@ final class LauncherPanel: NSPanel {
         container.wantsLayer = true
         contentView = container
 
-        let cardFrame = NSRect(x: margin, y: margin,
+        let cardFrame = NSRect(x: m, y: m,
                                width: cardSize.width, height: cardSize.height)
+        LauncherPanel.current = self
 
         hosting.frame = CGRect(origin: .zero, size: cardSize)
         hosting.autoresizingMask = [.width, .height]
 
         // Native Liquid Glass on macOS 26+, frosted-glass fallback below.
+        // The glass view self-clips via its own cornerRadius + layer mask;
+        // a separate clip NSView created a rectangular boundary that fought
+        // the glass rendering and left a visible purple border artefact.
         let background = Self.makeGlassBackground(
-            frame: CGRect(origin: .zero, size: cardSize),
+            frame: cardFrame,
             cornerRadius: cornerRadius, content: hosting
         )
-
-        // Clip the glass to its own bounds so its built-in drop shadow (which
-        // bleeds a few px outside the card) is cut off — the panel sits flush
-        // with no visible halo on any background.
-        let clip = NSView(frame: cardFrame)
-        clip.wantsLayer = true
-        clip.layer?.masksToBounds = true
-        clip.addSubview(background)
-        container.addSubview(clip)
+        container.addSubview(background)
     }
 
     /// Returns an NSGlassEffectView (real Liquid Glass — refracts the desktop
@@ -67,6 +68,11 @@ final class LauncherPanel: NSPanel {
             glass.cornerRadius = cornerRadius
             glass.style = .clear   // see-through refractive glass (vs milky .regular)
             glass.contentView = content
+            // Zero out any layer border the view hierarchy may inherit —
+            // prevents the purple/accent-colour outline visible in dark mode.
+            glass.wantsLayer = true
+            glass.layer?.borderWidth = 0
+            glass.layer?.masksToBounds = true
             return glass
         } else {
             let vfx = RoundedVisualEffectView()
@@ -112,6 +118,12 @@ final class LauncherPanel: NSPanel {
     func hide() {
         guard isVisible, !isTransitioning else { return }
         removeGlobalMonitor()
+        // Notify SwiftUI layer so drag state (draggingID) is always cleared on
+        // dismiss, even when hide() is called directly (⌘⌘ toggle / Esc / click
+        // outside) without going through AppStore.launch() or the .hideLauncher
+        // observer. The AppDelegate observer calls hide() again in response, but
+        // isTransitioning is already true so it exits immediately — no cycle.
+        NotificationCenter.default.post(name: .hideLauncher, object: nil)
 
         isTransitioning = true
         NSAnimationContext.runAnimationGroup({ ctx in

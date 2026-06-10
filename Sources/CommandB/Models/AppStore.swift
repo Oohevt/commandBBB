@@ -24,8 +24,12 @@ final class AppStore: ObservableObject {
     }
 
     func save() {
-        if let data = try? JSONEncoder().encode(apps) {
-            UserDefaults.standard.set(data, forKey: storageKey)
+        let snapshot = apps
+        let key = storageKey
+        // Encode off the main thread; UserDefaults.set is thread-safe.
+        Task.detached(priority: .utility) {
+            guard let data = try? JSONEncoder().encode(snapshot) else { return }
+            UserDefaults.standard.set(data, forKey: key)
         }
     }
 
@@ -49,13 +53,11 @@ final class AppStore: ObservableObject {
         save()
     }
 
-    // No save() here: dropEntered calls this once per slot crossed during a
-    // drag — persisting is the drop's job (see SlotDropDelegate.performDrop).
-    func move(from: Int, to: Int) {
-        guard apps.indices.contains(from), from != to else { return }
-        let item = apps.remove(at: from)
-        let target = from < to ? to - 1 : to
-        apps.insert(item, at: max(0, min(target, apps.count)))
+    // No save() here: called once per slot crossed during a drag —
+    // persisting is the drag-end's job (LauncherView.reorderGesture.onEnded).
+    func swapSlots(_ a: Int, _ b: Int) {
+        guard apps.indices.contains(a), apps.indices.contains(b), a != b else { return }
+        apps.swapAt(a, b)
     }
 
     func setUnread(_ value: Bool, at index: Int) {
