@@ -23,5 +23,9 @@ while pgrep -x CommandB >/dev/null; do sleep 0.1; done
 rm -rf "$DEST"
 ditto "$SRC" "$DEST"
 
+# Sign with a stable identity so the TCC Accessibility grant survives
+# rebuilds (ad-hoc signatures change every build and silently void it).
+codesign --force --deep --sign "Apple Development: oohevt@qq.com (GAP2S4TS2U)" "$DEST"
+
 open "$DEST"
 echo "Installed $(stat -f '%Sm' "$DEST/Contents/MacOS/CommandB") and launched."

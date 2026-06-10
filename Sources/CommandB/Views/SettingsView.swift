@@ -19,7 +19,7 @@ struct SettingsView: View {
 
     private var header: some View {
         HStack {
-            Text("Command+B Launcher")
+            Text("CommandB Launcher")
                 .font(.headline)
             Spacer()
             Text("\(store.apps.count) / 8")
@@ -82,7 +82,7 @@ struct SettingsView: View {
             .padding(.vertical, 10)
 
             Divider()
-            Text("Drag rows to reorder  •  Press ⌘B to open the launcher")
+            Text("Drag rows to reorder  •  Double-tap ⌘ to open the launcher")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .padding(.horizontal, 20)

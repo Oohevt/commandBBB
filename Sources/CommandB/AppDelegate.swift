@@ -1,28 +1,26 @@
 import AppKit
-import Carbon.HIToolbox
+import ApplicationServices
+import os
 
-// Module-level callback storage — required because C function pointers can't capture context
-fileprivate var _hotKeyAction: (() -> Void)?
-
-// C-compatible handler passed to Carbon
-fileprivate func hotKeyHandler(
-    _ nextHandler: EventHandlerCallRef?,
-    _ event: EventRef?,
-    _ userData: UnsafeMutableRawPointer?
-) -> OSStatus {
-    _hotKeyAction?()
-    return noErr
-}
+private let hotkeyLog = Logger(subsystem: "com.oohevt.commandb", category: "hotkey")
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: LauncherPanel?
     private var statusItem: NSStatusItem?
-    private var hotKeyRef: EventHotKeyRef?
+    private var monitors: [Any] = []
+    private var permissionTimer: Timer?
+
+    // Double-tap ⌘ detection. A "clean tap" is ⌘ down → up with no other key
+    // or modifier involved; two clean taps within the window toggle the panel.
+    private var cmdIsDown = false
+    private var tapDirty = false
+    private var lastCleanTapAt: TimeInterval = 0
+    private let doubleTapWindow: TimeInterval = 0.35
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         panel = LauncherPanel()
         setupMenuBar()
-        setupHotKey()
+        startMonitoringWhenTrusted()
         // NOTE: do NOT touch SMAppService on launch. Reading its status /
         // registering triggers a sandboxd App-Management (SystemPolicyAppBundles)
         // TCC preflight, which — under ad-hoc signing — re-prompts on every
@@ -58,33 +56,86 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = menu
     }
 
-    private func setupHotKey() {
-        _hotKeyAction = { [weak self] in
-            DispatchQueue.main.async { self?.panel?.toggle() }
+    // MARK: - Accessibility permission
+
+    // Global NSEvent monitors silently receive nothing until the app is
+    // AX-trusted, so prompt once and poll until the user flips the switch.
+    private func startMonitoringWhenTrusted() {
+        let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        let trusted = AXIsProcessTrustedWithOptions(opts)
+        hotkeyLog.log("AX trusted at launch: \(trusted)")
+        if trusted {
+            installMonitors()
+            return
         }
+        permissionTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            guard let self, AXIsProcessTrusted() else { return }
+            self.permissionTimer?.invalidate()
+            self.permissionTimer = nil
+            hotkeyLog.log("AX granted after poll, installing monitors")
+            self.installMonitors()
+        }
+    }
 
-        var eventSpec = EventTypeSpec(
-            eventClass: OSType(kEventClassKeyboard),
-            eventKind: OSType(kEventHotKeyPressed)
-        )
-        InstallEventHandler(
-            GetApplicationEventTarget(),
-            hotKeyHandler,
-            1,
-            &eventSpec,
-            nil,
-            nil
-        )
+    private func installMonitors() {
+        guard monitors.isEmpty else { return }
+        // Global monitors never see our own events, so local ones are needed
+        // for double-tap-to-hide while the panel is the key window.
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged, handler: { [weak self] e in
+            self?.handleFlagsChanged(e)
+        }) { monitors.append(m) }
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { [weak self] _ in
+            self?.handleKeyDown()
+        }) { monitors.append(m) }
+        if let m = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged, handler: { [weak self] e in
+            self?.handleFlagsChanged(e)
+            return e
+        }) { monitors.append(m) }
+        if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] e in
+            self?.handleKeyDown()
+            return e
+        }) { monitors.append(m) }
+        hotkeyLog.log("monitors installed: \(self.monitors.count)")
+    }
 
-        let hotKeyID = EventHotKeyID(signature: 0x434D4442, id: 1)
-        RegisterEventHotKey(
-            UInt32(kVK_ANSI_B),
-            UInt32(cmdKey),
-            hotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &hotKeyRef
-        )
+    // MARK: - Double-tap ⌘ state machine
+
+    // Only real modifier keys matter; .capsLock/.numericPad/.function would
+    // otherwise keep `flags` non-empty and mark every tap dirty.
+    private static let modMask: NSEvent.ModifierFlags = [.command, .shift, .control, .option]
+
+    private func handleFlagsChanged(_ event: NSEvent) {
+        let flags = event.modifierFlags.intersection(Self.modMask)
+        let now = ProcessInfo.processInfo.systemUptime
+
+        if flags.contains(.command) {
+            if !cmdIsDown {
+                cmdIsDown = true
+                tapDirty = (flags != .command)
+            } else if flags != .command {
+                tapDirty = true
+            }
+        } else if cmdIsDown {
+            cmdIsDown = false
+            defer { tapDirty = false }
+            guard !tapDirty, flags.isEmpty else {
+                lastCleanTapAt = 0
+                return
+            }
+            if now - lastCleanTapAt <= doubleTapWindow {
+                lastCleanTapAt = 0
+                hotkeyLog.log("double-tap ⌘ -> toggle")
+                DispatchQueue.main.async { [weak self] in self?.panel?.toggle() }
+            } else {
+                hotkeyLog.log("clean tap")
+                lastCleanTapAt = now
+            }
+        }
+    }
+
+    private func handleKeyDown() {
+        if cmdIsDown { tapDirty = true }
+        lastCleanTapAt = 0
     }
 
     @objc private func hideLauncher() {
