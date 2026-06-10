@@ -37,22 +37,25 @@ final class AppStore: ObservableObject {
 
     func remove(at index: Int) {
         guard index < apps.count else { return }
+        AppItem.purgeIconCache(for: apps[index].id)
         apps.remove(at: index)
         save()
     }
 
     func replace(at index: Int, with item: AppItem) {
         guard index < apps.count else { return }
+        AppItem.purgeIconCache(for: apps[index].id)
         apps[index] = item
         save()
     }
 
+    // No save() here: dropEntered calls this once per slot crossed during a
+    // drag — persisting is the drop's job (see SlotDropDelegate.performDrop).
     func move(from: Int, to: Int) {
         guard apps.indices.contains(from), from != to else { return }
         let item = apps.remove(at: from)
         let target = from < to ? to - 1 : to
         apps.insert(item, at: max(0, min(target, apps.count)))
-        save()
     }
 
     func setUnread(_ value: Bool, at index: Int) {

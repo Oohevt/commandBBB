@@ -5,6 +5,9 @@ import ServiceManagement
 
 struct SettingsView: View {
     @EnvironmentObject private var store: AppStore
+    // Cached once on appear — SMAppService.mainApp.status is a launchd IPC
+    // call and must not run on every body evaluation.
+    @State private var launchAtLogin = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -66,20 +69,22 @@ struct SettingsView: View {
     private var footer: some View {
         VStack(spacing: 0) {
             Divider()
-            Toggle(isOn: Binding(
-                get: { SMAppService.mainApp.status == .enabled },
-                set: { enable in
-                    try? enable
-                        ? SMAppService.mainApp.register()
-                        : SMAppService.mainApp.unregister()
-                }
-            )) {
+            Toggle(isOn: $launchAtLogin) {
                 Text("Launch at Login")
                     .font(.system(size: 13))
             }
             .toggleStyle(.switch)
             .padding(.horizontal, 20)
             .padding(.vertical, 10)
+            .onAppear {
+                launchAtLogin = SMAppService.mainApp.status == .enabled
+            }
+            .onChange(of: launchAtLogin) { enable in
+                guard enable != (SMAppService.mainApp.status == .enabled) else { return }
+                try? enable
+                    ? SMAppService.mainApp.register()
+                    : SMAppService.mainApp.unregister()
+            }
 
             Divider()
             Text("Drag rows to reorder  •  Double-tap ⌘ to open the launcher")

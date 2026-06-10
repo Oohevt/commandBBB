@@ -30,12 +30,14 @@ struct LauncherView: View {
         HStack(spacing: spacing) {
             ForEach(0..<8, id: \.self) { index in
                 if index < store.apps.count {
+                    let s = scaleFor(index)
                     AppSlotButton(
                         item: store.apps[index],
                         index: index,
-                        scale: scaleFor(index),
+                        scale: s,
                         dragging: $dragging
                     )
+                    .zIndex(Double(s))  // magnified icon overlaps neighbours
                 } else {
                     EmptySlotButton()
                 }
@@ -62,23 +64,26 @@ struct AppSlotButton: View {
     @Binding var dragging: Int?
 
     var body: some View {
+        // Size-driven magnification (what Dock does): the frame itself grows,
+        // so the icon re-rasterizes at the exact display size every step.
+        // scaleEffect would stretch an already-rasterized texture — blurry.
+        let side = 54 * scale
         Button {
             AppStore.shared.launch(item)
         } label: {
             Image(nsImage: item.icon)
                 .resizable()
                 .interpolation(.high)
-                .frame(width: 54, height: 54)
-                .clipShape(RoundedRectangle(cornerRadius: 13))
-                .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
-                .scaleEffect(scale, anchor: .center)
+                .frame(width: side, height: side)
+                .clipShape(RoundedRectangle(cornerRadius: 13 * scale))
+                .shadow(color: .black.opacity(0.18), radius: 4 * scale, y: 2 * scale)
                 .overlay(alignment: .topTrailing) {
                     if item.unread {
                         Circle()
                             .fill(Color.red)
-                            .frame(width: 12, height: 12)
-                            .overlay(Circle().strokeBorder(.white, lineWidth: 1.5))
-                            .offset(x: 4, y: -4)
+                            .frame(width: 12 * scale, height: 12 * scale)
+                            .overlay(Circle().strokeBorder(.white, lineWidth: 1.5 * scale))
+                            .offset(x: 4 * scale, y: -4 * scale)
                     }
                 }
         }
@@ -147,6 +152,7 @@ struct SlotDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         dragging = nil
+        AppStore.shared.save()   // persist the final order once, not per slot
         return true
     }
 }

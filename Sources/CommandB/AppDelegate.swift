@@ -125,7 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if now - lastCleanTapAt <= doubleTapWindow {
                 lastCleanTapAt = 0
                 hotkeyLog.log("double-tap ⌘ -> toggle")
-                DispatchQueue.main.async { [weak self] in self?.panel?.toggle() }
+                panel?.toggle()   // monitor handlers already run on the main thread
             } else {
                 hotkeyLog.log("clean tap")
                 lastCleanTapAt = now
@@ -134,6 +134,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleKeyDown() {
+        // Fast path: nothing pending, so the vast majority of keystrokes exit here.
+        guard cmdIsDown || lastCleanTapAt != 0 else { return }
         if cmdIsDown { tapDirty = true }
         lastCleanTapAt = 0
     }
