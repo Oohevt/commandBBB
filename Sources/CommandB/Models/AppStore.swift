@@ -1,16 +1,63 @@
 import Foundation
 import AppKit
+import Combine
+import SwiftUI
 
 @MainActor
 final class AppStore: ObservableObject {
     static let shared = AppStore()
+    static let maxSlots = 8
 
     @Published var apps: [AppItem] = []
+    @Published var activationModifiers: Set<ActivationModifier> = ActivationModifier.defaultSelection {
+        didSet {
+            guard activationModifiers != oldValue else { return }
+            ActivationModifier.saveSelection(activationModifiers)
+            NotificationCenter.default.post(name: .activationHotkeyChanged, object: nil)
+        }
+    }
+
+    // Turn a trigger on/off from Settings; the last remaining trigger cannot
+    // be disabled so the launcher always stays reachable.
+    func binding(for modifier: ActivationModifier) -> Binding<Bool> {
+        Binding(
+            get: { self.activationModifiers.contains(modifier) },
+            set: { active in
+                if active {
+                    self.activationModifiers.insert(modifier)
+                } else if self.activationModifiers.count > 1 {
+                    self.activationModifiers.remove(modifier)
+                }
+            }
+        )
+    }
+
+    var activationInstruction: String {
+        let active = ActivationModifier.allCases.filter { activationModifiers.contains($0) }
+        guard !active.isEmpty else { return "no activation shortcut" }
+        return active.map(\.instructionText).joined(separator: " • ")
+    }
+
+    private var iconUpdates: AnyCancellable?
 
     private let storageKey = "com.oohevt.commandb.apps"
+    private let showMenuBarIconKey = "com.oohevt.commandb.showMenuBarIcon"
+
+    // Absent key means visible — the menu bar icon is the historic default.
+    var showMenuBarIcon: Bool {
+        get { UserDefaults.standard.object(forKey: showMenuBarIconKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: showMenuBarIconKey) }
+    }
+
+    var canAdd: Bool {
+        apps.count < Self.maxSlots
+    }
 
     private init() {
         load()
+        loadActivationModifier()
+        iconUpdates = NotificationCenter.default.publisher(for: .appIconDidLoad)
+            .sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
     private func load() {
@@ -23,18 +70,19 @@ final class AppStore: ObservableObject {
         }
     }
 
+    private func loadActivationModifier() {
+        activationModifiers = ActivationModifier.loadSelection()
+    }
+
     func save() {
-        let snapshot = apps
-        let key = storageKey
-        // Encode off the main thread; UserDefaults.set is thread-safe.
-        Task.detached(priority: .utility) {
-            guard let data = try? JSONEncoder().encode(snapshot) else { return }
-            UserDefaults.standard.set(data, forKey: key)
-        }
+        // At most eight small records: encode and commit in call order.
+        // Independent detached tasks can let an older snapshot overwrite a new one.
+        guard let data = try? JSONEncoder().encode(apps) else { return }
+        UserDefaults.standard.set(data, forKey: storageKey)
     }
 
     func add(_ item: AppItem) {
-        guard apps.count < 8 else { return }
+        guard canAdd else { return }
         apps.append(item)
         save()
     }
@@ -72,18 +120,23 @@ final class AppStore: ObservableObject {
             save()
         }
         NSWorkspace.shared.open(URL(fileURLWithPath: item.path))
-        NotificationCenter.default.post(name: .hideLauncher, object: nil)
+        NotificationCenter.default.post(name: .requestHideLauncher, object: nil)
     }
 
     func openSettings() {
-        NotificationCenter.default.post(name: .hideLauncher, object: nil)
+        NotificationCenter.default.post(name: .requestHideLauncher, object: nil)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-            NSApp.activate(ignoringOtherApps: true)
+            NotificationCenter.default.post(name: .requestOpenSettings, object: nil)
         }
     }
 }
 
 extension Notification.Name {
-    static let hideLauncher = Notification.Name("com.oohevt.commandb.hideLauncher")
+    static let appIconDidLoad = Notification.Name("com.oohevt.commandb.appIconDidLoad")
+    static let requestHideLauncher = Notification.Name("com.oohevt.commandb.requestHideLauncher")
+    static let requestOpenSettings = Notification.Name("com.oohevt.commandb.requestOpenSettings")
+    static let launcherDidHide = Notification.Name("com.oohevt.commandb.launcherDidHide")
+    static let activationHotkeyChanged = Notification.Name("com.oohevt.commandb.activationHotkeyChanged")
+    static let menuBarIconVisibilityChanged = Notification.Name("com.oohevt.commandb.menuBarIconVisibilityChanged")
+    static let appSlotsFull = Notification.Name("com.oohevt.commandb.appSlotsFull")
 }

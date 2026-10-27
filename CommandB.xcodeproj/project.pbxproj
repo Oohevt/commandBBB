@@ -8,12 +8,14 @@
 
 /* Begin PBXBuildFile section */
 		09067FEC322DE215A7959F4B /* LauncherView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12D43C22086792F556DD9718 /* LauncherView.swift */; };
+		207987C5E8E414F2C441008B /* ActivationModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF4AB1E6B09C020C871D801C /* ActivationModifier.swift */; };
 		4B4320F100B516EB62A87F49 /* RoundedVisualEffectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3039F0B57DFF3CED840DC934 /* RoundedVisualEffectView.swift */; };
 		720816EE533FCBA748AAEA8B /* CommandBApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC7EA35EF807E04FA030A79 /* CommandBApp.swift */; };
 		7A906CF4C4165586FC80A25B /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4277B8FE1303F66427FD3A4 /* AppStore.swift */; };
 		7AFEBE16D46E6CA9A07A290C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0F16660B5507418C826666 /* SettingsView.swift */; };
 		A0568D5308B13AEB9C0BC98C /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC80B246B4875BDBDA2C3A5B /* AppDelegate.swift */; };
 		ADB1C99ED753EEADC5047243 /* AppItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA4D350C1343D25E27EFEB17 /* AppItem.swift */; };
+		DD47EEAD842E1095B80C9CED /* DesktopClick.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBC97CACDE733A37927E6721 /* DesktopClick.swift */; };
 		EF40FB296C3C9CE014FB1558 /* LauncherPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 668EA27DD7178D8E2ECD1A28 /* LauncherPanel.swift */; };
 /* End PBXBuildFile section */
 
@@ -23,10 +25,12 @@
 		668EA27DD7178D8E2ECD1A28 /* LauncherPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LauncherPanel.swift; sourceTree = "<group>"; };
 		A214400B9D65ACF625E6FB3A /* CommandB.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CommandB.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA4D350C1343D25E27EFEB17 /* AppItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppItem.swift; sourceTree = "<group>"; };
+		CBC97CACDE733A37927E6721 /* DesktopClick.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopClick.swift; sourceTree = "<group>"; };
 		DAC7EA35EF807E04FA030A79 /* CommandBApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandBApp.swift; sourceTree = "<group>"; };
 		DC80B246B4875BDBDA2C3A5B /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		E4277B8FE1303F66427FD3A4 /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
 		FF0F16660B5507418C826666 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		FF4AB1E6B09C020C871D801C /* ActivationModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivationModifier.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -58,6 +62,7 @@
 		8BA28E5DFDB1805ABE85FC1B /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				FF4AB1E6B09C020C871D801C /* ActivationModifier.swift */,
 				AA4D350C1343D25E27EFEB17 /* AppItem.swift */,
 				E4277B8FE1303F66427FD3A4 /* AppStore.swift */,
 			);
@@ -77,6 +82,7 @@
 			children = (
 				DC80B246B4875BDBDA2C3A5B /* AppDelegate.swift */,
 				DAC7EA35EF807E04FA030A79 /* CommandBApp.swift */,
+				CBC97CACDE733A37927E6721 /* DesktopClick.swift */,
 				668EA27DD7178D8E2ECD1A28 /* LauncherPanel.swift */,
 				3039F0B57DFF3CED840DC934 /* RoundedVisualEffectView.swift */,
 				8BA28E5DFDB1805ABE85FC1B /* Models */,
@@ -143,10 +149,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				207987C5E8E414F2C441008B /* ActivationModifier.swift in Sources */,
 				A0568D5308B13AEB9C0BC98C /* AppDelegate.swift in Sources */,
 				ADB1C99ED753EEADC5047243 /* AppItem.swift in Sources */,
 				7A906CF4C4165586FC80A25B /* AppStore.swift in Sources */,
 				720816EE533FCBA748AAEA8B /* CommandBApp.swift in Sources */,
+				DD47EEAD842E1095B80C9CED /* DesktopClick.swift in Sources */,
 				EF40FB296C3C9CE014FB1558 /* LauncherPanel.swift in Sources */,
 				09067FEC322DE215A7959F4B /* LauncherView.swift in Sources */,
 				4B4320F100B516EB62A87F49 /* RoundedVisualEffectView.swift in Sources */,

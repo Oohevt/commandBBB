@@ -8,6 +8,7 @@ struct SettingsView: View {
     // Cached once on appear — SMAppService.mainApp.status is a launchd IPC
     // call and must not run on every body evaluation.
     @State private var launchAtLogin = false
+    @State private var showMenuBarIcon = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -25,7 +26,7 @@ struct SettingsView: View {
             Text("CommandB Launcher")
                 .font(.headline)
             Spacer()
-            Text("\(store.apps.count) / 8")
+            Text("\(store.apps.count) / \(AppStore.maxSlots)")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -48,9 +49,7 @@ struct SettingsView: View {
                 store.save()
             }
 
-            if store.apps.count < 8 {
-                addButton
-            }
+            addButton
         }
         .listStyle(.inset)
     }
@@ -60,14 +59,27 @@ struct SettingsView: View {
             addApp()
         } label: {
             Label("Add App…", systemImage: "plus.circle.fill")
-                .foregroundStyle(.blue)
+                .foregroundStyle(store.canAdd ? .blue : .secondary)
         }
         .buttonStyle(.plain)
+        .help(store.canAdd ? "Add app" : "App slots are full")
         .padding(.vertical, 4)
     }
 
     private var footer: some View {
         VStack(spacing: 0) {
+            Divider()
+            VStack(spacing: 0) {
+                ForEach(ActivationModifier.allCases) { modifier in
+                    Toggle(isOn: store.binding(for: modifier)) {
+                        Text(modifier.menuTitle)
+                            .font(.system(size: 13))
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                }
+            }
+
             Divider()
             Toggle(isOn: $launchAtLogin) {
                 Text("Launch at Login")
@@ -87,7 +99,23 @@ struct SettingsView: View {
             }
 
             Divider()
-            Text("Drag rows to reorder  •  Double-tap ⌘ to open the launcher")
+            Toggle(isOn: $showMenuBarIcon) {
+                Text("Show Menu Bar Icon")
+                    .font(.system(size: 13))
+            }
+            .toggleStyle(.switch)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+            .onAppear {
+                showMenuBarIcon = store.showMenuBarIcon
+            }
+            .onChange(of: showMenuBarIcon) { visible in
+                store.showMenuBarIcon = visible
+                NotificationCenter.default.post(name: .menuBarIconVisibilityChanged, object: nil)
+            }
+
+            Divider()
+            Text("Drag rows to reorder  •  \(store.activationInstruction)")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .padding(.horizontal, 20)
@@ -96,9 +124,7 @@ struct SettingsView: View {
     }
 
     private func addApp() {
-        guard let url = runAppPicker(prompt: "Add") else { return }
-        let name = url.deletingPathExtension().lastPathComponent
-        store.add(AppItem(id: UUID(), name: name, path: url.path))
+        addPickedApp(prompt: "Add")
     }
 
     private func replaceApp(at index: Int) {
@@ -153,6 +179,18 @@ struct AppRowView: View {
 }
 
 // Shared picker helper
+@MainActor
+func addPickedApp(prompt: String) {
+    guard AppStore.shared.canAdd else {
+        NotificationCenter.default.post(name: .appSlotsFull, object: nil)
+        return
+    }
+    guard let url = runAppPicker(prompt: prompt) else { return }
+    let name = url.deletingPathExtension().lastPathComponent
+    AppStore.shared.add(AppItem(id: UUID(), name: name, path: url.path))
+}
+
+@MainActor
 func runAppPicker(prompt: String) -> URL? {
     let panel = NSOpenPanel()
     panel.allowedContentTypes = [UTType.application]
