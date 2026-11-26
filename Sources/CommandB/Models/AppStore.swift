@@ -117,10 +117,15 @@ final class AppStore: ObservableObject {
 
     func launch(_ item: AppItem) async {
         launchError = nil
+        let configuration = NSWorkspace.OpenConfiguration()
+        #if COMMAND_B_TESTING
+        // Invalid test bundles must not leave system dialogs on the desktop.
+        configuration.promptsUserIfNeeded = false
+        #endif
         do {
             _ = try await NSWorkspace.shared.openApplication(
                 at: URL(fileURLWithPath: item.path),
-                configuration: NSWorkspace.OpenConfiguration()
+                configuration: configuration
             )
         } catch {
             launchError = "无法打开“\(item.name)”。应用可能已移动、删除或无法运行，请在设置中重新选择。\n\n\(error.localizedDescription)"

@@ -6,6 +6,7 @@ final class LauncherPanel: NSPanel {
     private var globalMonitor: Any?
     private var isTransitioning = false
     private var wantsVisible = false
+    private var transitionID = 0
 
     // Transparent margin around the card, giving the custom shadow room to render.
     static let margin: CGFloat = 36
@@ -133,9 +134,7 @@ final class LauncherPanel: NSPanel {
     }
 
     func show(onMouseScreen: Bool = false) {
-        wantsVisible = true
-        guard !isTransitioning, !isVisible else { return }
-        relayout(animated: false)
+        guard !wantsVisible else { return }
         // Keyboard activation follows keyboard focus; a right-click should
         // summon the panel wherever the pointer is — the two differ when a
         // second display is attached.
@@ -143,28 +142,36 @@ final class LauncherPanel: NSPanel {
             ? NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
             : NSScreen.main
         guard let screen else { return }
+        let wasVisible = isVisible
+        wantsVisible = true
+        transitionID += 1
+        let currentTransition = transitionID
+        if !wasVisible { relayout(animated: false) }
         let sx = screen.visibleFrame.midX - frame.width / 2
         let sy = screen.visibleFrame.midY - frame.height / 2
         setFrameOrigin(NSPoint(x: sx, y: sy))
 
-        alphaValue = 0
+        if !wasVisible { alphaValue = 0 }
         NSApp.activate(ignoringOtherApps: true)
         makeKeyAndOrderFront(nil)
 
         isTransitioning = true
         // Gentle pop: the card settles the last 2% of its size while fading in.
-        cardBackground.frame = cardFrame.insetBy(dx: cardFrame.width * 0.01,
-                                                 dy: cardFrame.height * 0.01)
+        if !wasVisible {
+            cardBackground.frame = cardFrame.insetBy(dx: cardFrame.width * 0.01,
+                                                     dy: cardFrame.height * 0.01)
+        }
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.14
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             animator().alphaValue = 1
             cardBackground.animator().frame = cardFrame
         }, completionHandler: { [weak self] in
-            guard let self else { return }
+            guard let self, self.transitionID == currentTransition else { return }
             self.cardBackground.frame = self.cardFrame
             self.isTransitioning = false
-            if !self.wantsVisible { self.hide() }
+            self.alphaValue = 1
+            self.relayout(animated: false)
         })
 
         globalMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -175,8 +182,10 @@ final class LauncherPanel: NSPanel {
     }
 
     func hide() {
+        guard wantsVisible else { return }
         wantsVisible = false
-        guard isVisible, !isTransitioning else { return }
+        transitionID += 1
+        let currentTransition = transitionID
         isTransitioning = true
         removeGlobalMonitor()
         NotificationCenter.default.post(name: .launcherDidHide, object: nil)
@@ -186,10 +195,9 @@ final class LauncherPanel: NSPanel {
             ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
             animator().alphaValue = 0
         }, completionHandler: { [weak self] in
-            guard let self else { return }
+            guard let self, self.transitionID == currentTransition else { return }
             self.orderOut(nil)
             self.isTransitioning = false
-            if self.wantsVisible { self.show() }
         })
     }
 

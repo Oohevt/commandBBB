@@ -60,25 +60,20 @@ struct AppItem: Codable, Identifiable {
             }
             // A removed/replaced item must not resurrect its cache on completion.
             guard pendingLoads[item.id] == generation else { return }
-            if bitmap == nil {
+            let needsDiskCache = bitmap == nil
+            if needsDiskCache {
                 // Keep AppKit bundle access on the main actor. Rasterize only
                 // the requested size, never the original multi-resolution TIFF.
                 bitmap = rasterizedIcon(forFile: item.path)
-                if let image = bitmap {
-                    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                        iconQueue.async {
-                            writeThumbnail(image, to: url)
-                            continuation.resume()
-                        }
-                    }
-                }
             }
-            guard pendingLoads[item.id] == generation else { return }
             let image = bitmap.map {
                 NSImage(cgImage: $0, size: NSSize(width: 256, height: 256))
             } ?? placeholder
             memCache.setObject(image, forKey: item.id.uuidString as NSString)
             NotificationCenter.default.post(name: .appIconDidLoad, object: item.id)
+            if needsDiskCache, let bitmap, pendingLoads[item.id] == generation {
+                iconQueue.async { writeThumbnail(bitmap, to: url) }
+            }
         }
     }
 

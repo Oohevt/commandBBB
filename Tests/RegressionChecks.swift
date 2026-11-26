@@ -102,9 +102,18 @@ struct RegressionChecks {
         let textFile = scratch.appendingPathComponent("fixture.txt")
         try! "fixture".write(to: textFile, atomically: true, encoding: .utf8)
         let newItem = AppItem(id: UUID(), name: "new", path: textFile.path)
+        let newURL = AppItem.cacheDir.appendingPathComponent("\(newItem.id).png")
+        var readyBeforeWrite = false
+        let firstLoad = NotificationCenter.default.publisher(for: .appIconDidLoad).sink { event in
+            if event.object as? UUID == newItem.id {
+                readyBeforeWrite = !FileManager.default.fileExists(atPath: newURL.path)
+            }
+        }
         _ = newItem.icon
         await waitUntil { ready.contains(newItem.id) }
-        let newURL = AppItem.cacheDir.appendingPathComponent("\(newItem.id).png")
+        record("First-use icon is published before its PNG is written", readyBeforeWrite)
+        withExtendedLifetime(firstLoad) {}
+        await waitUntil { FileManager.default.fileExists(atPath: newURL.path) }
         record("First-use icon writes only 256 pixels", ready.contains(newItem.id) && dimensions(newURL) == 256)
         withExtendedLifetime((subscription, storeSubscription)) {}
     }
@@ -112,8 +121,13 @@ struct RegressionChecks {
     @MainActor static func checkPanel() async {
         AppStore.shared.apps = []
         let panel = LauncherPanel()
+        var hideStarted = false
+        let hideObserver = NotificationCenter.default.publisher(for: .launcherDidHide)
+            .sink { _ in hideStarted = true }
         panel.show()
         panel.hide()
+        record("Hide starts immediately during fade-in", hideStarted)
+        hideObserver.cancel()
         try? await Task.sleep(nanoseconds: 450_000_000)
         record("Hide during fade-in is honored", !panel.isVisible)
 
@@ -121,7 +135,8 @@ struct RegressionChecks {
         panel.hide()
         panel.show()
         try? await Task.sleep(nanoseconds: 450_000_000)
-        record("Latest show wins during fade-in", panel.isVisible && panel.alphaValue > 0.99)
+        record("Latest show wins during fade-in", panel.isVisible && panel.alphaValue > 0.99,
+               "visible=\(panel.isVisible), alpha=\(panel.alphaValue)")
 
         panel.hide()
         panel.show()
