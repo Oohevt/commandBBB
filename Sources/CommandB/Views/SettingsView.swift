@@ -7,7 +7,8 @@ struct SettingsView: View {
     @EnvironmentObject private var store: AppStore
     // Cached once on appear — SMAppService.mainApp.status is a launchd IPC
     // call and must not run on every body evaluation.
-    @State private var launchAtLogin = false
+    @State private var loginStatus: SMAppService.Status = .notRegistered
+    @State private var loginError: String?
     @State private var showMenuBarIcon = true
 
     var body: some View {
@@ -81,7 +82,10 @@ struct SettingsView: View {
             }
 
             Divider()
-            Toggle(isOn: $launchAtLogin) {
+            Toggle(isOn: Binding(
+                get: { loginStatus == .enabled },
+                set: setLaunchAtLogin
+            )) {
                 Text("Launch at Login")
                     .font(.system(size: 13))
             }
@@ -89,13 +93,25 @@ struct SettingsView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 10)
             .onAppear {
-                launchAtLogin = SMAppService.mainApp.status == .enabled
+                loginStatus = SMAppService.mainApp.status
             }
-            .onChange(of: launchAtLogin) { enable in
-                guard enable != (SMAppService.mainApp.status == .enabled) else { return }
-                try? enable
-                    ? SMAppService.mainApp.register()
-                    : SMAppService.mainApp.unregister()
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                let current = SMAppService.mainApp.status
+                if current != loginStatus { loginError = nil }
+                loginStatus = current
+            }
+            if let message = loginError ?? loginStatus.commandBMessage {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 6)
+            }
+            if loginStatus == .requiresApproval {
+                Button("打开系统登录项设置") {
+                    SMAppService.openSystemSettingsLoginItems()
+                }
+                .padding(.bottom, 8)
             }
 
             Divider()
@@ -127,10 +143,38 @@ struct SettingsView: View {
         addPickedApp(prompt: "Add")
     }
 
+    private func setLaunchAtLogin(_ enable: Bool) {
+        loginError = nil
+        let service = SMAppService.mainApp
+        do {
+            if enable {
+                if service.status != .enabled && service.status != .requiresApproval {
+                    try service.register()
+                }
+            } else {
+                try service.unregister()
+            }
+        } catch {
+            loginError = "开机启动设置失败：\(error.localizedDescription)"
+        }
+        loginStatus = service.status
+    }
+
     private func replaceApp(at index: Int) {
         guard let url = runAppPicker(prompt: "Replace") else { return }
         let name = url.deletingPathExtension().lastPathComponent
         store.replace(at: index, with: AppItem(id: UUID(), name: name, path: url.path))
+    }
+}
+
+extension SMAppService.Status {
+    var commandBMessage: String? {
+        switch self {
+        case .enabled, .notRegistered: return nil
+        case .requiresApproval: return "等待系统批准，开机启动尚未生效。"
+        case .notFound: return "开机启动不可用，请确认应用已正确安装。"
+        @unknown default: return "无法确认开机启动状态。"
+        }
     }
 }
 

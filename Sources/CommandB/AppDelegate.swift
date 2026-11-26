@@ -5,7 +5,18 @@ import os
 
 private let hotkeyLog = Logger(subsystem: "com.oohevt.commandb", category: "hotkey")
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+private final class SettingsWindow: NSWindow {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.charactersIgnoringModifiers?.lowercased() == "w" {
+            performClose(nil)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var panel: LauncherPanel?
     private var statusItem: NSStatusItem?
     private var settingsWindow: NSWindow?
@@ -13,13 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var permissionTimer: Timer?
     private var activationModifiers = ActivationModifier.loadSelection()
 
-    // Double-tap modifier detection. A "clean tap" is a selected modifier down → up with no other key
-    // or modifier involved; two clean taps within the window toggle the panel.
-    private var modifierIsDown = false
-    private var tapDirty = false
-    private var trackedFlag: NSEvent.ModifierFlags?   // which selected modifier the current tap belongs to
-    private var lastCleanTapAt: TimeInterval = 0
-    private let doubleTapWindow: TimeInterval = 0.35
+    private var modifierDoubleTap = ModifierDoubleTap()
 
     // Double right-click detection reuses the same toggle, timed by the
     // user's own system double-click setting.
@@ -218,55 +223,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Double-tap modifier state machine
 
-    // Only real modifier keys matter; .capsLock/.numericPad/.function would
-    // otherwise keep `flags` non-empty and mark every tap dirty.
-    private static let modMask: NSEvent.ModifierFlags = [.command, .shift, .control, .option]
-    private static let modMaskFlags: [NSEvent.ModifierFlags] = [.command, .shift, .control, .option]
-
     private func handleFlagsChanged(_ event: NSEvent) {
-        // No modifier triggers selected — mouse-only mode, taps are inert.
-        let activeFlags = activationModifiers.compactMap(\.flag)
-        guard !activeFlags.isEmpty else { return }
-        let flags = event.modifierFlags.intersection(Self.modMask)
-        let present = Self.modMaskFlags.filter { flags.contains($0) }
-        let now = ProcessInfo.processInfo.systemUptime
-
-        if present.isEmpty {
-            guard modifierIsDown else { return }
-            // the tracked modifier was released — judge the tap
-            modifierIsDown = false
-            defer { trackedFlag = nil; tapDirty = false }
-            guard !tapDirty else {
-                lastCleanTapAt = 0
-                return
-            }
-            if now - lastCleanTapAt <= doubleTapWindow {
-                lastCleanTapAt = 0
-                let symbol = activationModifiers.first { $0.flag == trackedFlag }?.symbol ?? "?"
-                hotkeyLog.log("double-tap \(symbol, privacy: .public) -> toggle")
-                panel?.toggle()   // monitor handlers already run on the main thread
-            } else {
-                hotkeyLog.log("clean tap")
-                lastCleanTapAt = now
-            }
-        } else if modifierIsDown {
-            // any deviation from the exact tracked modifier dirties the tap
-            if trackedFlag == nil || flags != trackedFlag { tapDirty = true }
-        } else if present.count == 1, activeFlags.contains(present[0]) {
-            modifierIsDown = true
-            trackedFlag = present[0]
-            tapDirty = false
-        } else {
-            // untracked combo (e.g. ⌘⌥) — must never bridge two clean taps
-            lastCleanTapAt = 0
+        if modifierDoubleTap.handle(flags: event.modifierFlags, selected: activationModifiers,
+                                    at: ProcessInfo.processInfo.systemUptime) {
+            hotkeyLog.log("double-tap modifier -> toggle")
+            panel?.toggle()
         }
     }
 
     private func handleKeyDown() {
-        // Fast path: nothing pending, so the vast majority of keystrokes exit here.
-        guard modifierIsDown || lastCleanTapAt != 0 else { return }
-        if modifierIsDown { tapDirty = true }
-        lastCleanTapAt = 0
+        modifierDoubleTap.keyDown()
     }
 
     private func handleRightMouseDown() {
@@ -311,10 +277,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     @objc private func activationHotkeyChanged() {
         activationModifiers = ActivationModifier.loadSelection()
-        modifierIsDown = false
-        trackedFlag = nil
-        tapDirty = false
-        lastCleanTapAt = 0
+        modifierDoubleTap.reset()
         lastRightClickAt = 0
         teardownMonitors()
         installMonitors()
@@ -347,15 +310,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if settingsWindow == nil {
             let view = SettingsView().environmentObject(AppStore.shared)
             let hosting = NSHostingController(rootView: view)
-            let window = NSWindow(contentViewController: hosting)
+            let window = SettingsWindow(contentViewController: hosting)
             window.title = "CommandB Settings"
             window.styleMask = [.titled, .closable, .miniaturizable]
+            window.collectionBehavior = [.primary, .managed, .fullScreenNone]
+            window.delegate = self
             window.isReleasedWhenClosed = false
             window.setContentSize(NSSize(width: 420, height: 440))
             window.center()
             settingsWindow = window
         }
+        NSApp.setActivationPolicy(.regular)
         settingsWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard notification.object as? NSWindow === settingsWindow else { return }
+        NSApp.setActivationPolicy(.accessory)
     }
 }

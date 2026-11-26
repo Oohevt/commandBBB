@@ -74,6 +74,14 @@ struct LauncherView: View {
             dragLocation = nil
             dragIsLifted = false
         }
+        .alert("应用启动失败", isPresented: Binding(
+            get: { store.launchError != nil },
+            set: { if !$0 { store.launchError = nil } }
+        )) {
+            Button("好", role: .cancel) { store.launchError = nil }
+        } message: {
+            Text(store.launchError ?? "")
+        }
     }
 
     private func handleDragChanged(id: UUID, location: CGPoint) {
@@ -133,7 +141,7 @@ struct AppSlotButton: View {
         .contentShape(Rectangle())
         .onTapGesture {
             guard draggingID == nil, dragLocation == nil else { return }
-            AppStore.shared.launch(item)
+            Task { await AppStore.shared.launch(item) }
         }
         .gesture(
             DragGesture(minimumDistance: 4, coordinateSpace: .named("launcher"))

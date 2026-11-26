@@ -9,6 +9,7 @@ final class AppStore: ObservableObject {
     static let maxSlots = 8
 
     @Published var apps: [AppItem] = []
+    @Published var launchError: String?
     @Published var activationModifiers: Set<ActivationModifier> = ActivationModifier.defaultSelection {
         didSet {
             guard activationModifiers != oldValue else { return }
@@ -114,12 +115,21 @@ final class AppStore: ObservableObject {
         save()
     }
 
-    func launch(_ item: AppItem) {
+    func launch(_ item: AppItem) async {
+        launchError = nil
+        do {
+            _ = try await NSWorkspace.shared.openApplication(
+                at: URL(fileURLWithPath: item.path),
+                configuration: NSWorkspace.OpenConfiguration()
+            )
+        } catch {
+            launchError = "无法打开“\(item.name)”。应用可能已移动、删除或无法运行，请在设置中重新选择。\n\n\(error.localizedDescription)"
+            return
+        }
         if let i = apps.firstIndex(where: { $0.id == item.id }), apps[i].unread {
             apps[i].unread = false   // opening clears the unread dot
             save()
         }
-        NSWorkspace.shared.open(URL(fileURLWithPath: item.path))
         NotificationCenter.default.post(name: .requestHideLauncher, object: nil)
     }
 

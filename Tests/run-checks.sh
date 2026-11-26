@@ -17,6 +17,7 @@ cat > "$BUNDLE/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 SOURCES=("$ROOT_DIR/Tests/RegressionChecks.swift" "$ROOT_DIR/Sources/CommandB/LauncherPanel.swift" "$ROOT_DIR/Sources/CommandB/RoundedVisualEffectView.swift" "$ROOT_DIR/Sources/CommandB/DesktopClick.swift")
+SOURCES+=("$ROOT_DIR/Tests/ModifierTapChecks.swift")
 for source in "$ROOT_DIR/Sources/CommandB/Models/"*.swift "$ROOT_DIR/Sources/CommandB/Views/"*.swift; do
   SOURCES+=("$source")
 done

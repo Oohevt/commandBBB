@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import ImageIO
+import ServiceManagement
 
 @main
 struct RegressionChecks {
@@ -29,6 +30,11 @@ struct RegressionChecks {
             await checkPanel()
             await checkPanelSizing()
             await checkActivationTrigger()
+            checkModifierTaps()
+            await checkApplicationLaunch(scratch: scratch)
+            record("Pending approval is explicitly reported as not effective",
+                   SMAppService.Status.requiresApproval.commandBMessage?.contains("尚未生效") == true)
+            record("Unavailable login item has an explanation", SMAppService.Status.notFound.commandBMessage != nil)
 
             UserDefaults.standard.removePersistentDomain(forName: Bundle.main.bundleIdentifier!)
             try? FileManager.default.removeItem(at: scratch)
@@ -229,6 +235,45 @@ struct RegressionChecks {
             if predicate() { return }
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
+    }
+
+    @MainActor static func checkApplicationLaunch(scratch: URL) async {
+        let store = AppStore.shared
+        var hides = 0
+        let subscription = NotificationCenter.default.publisher(for: .requestHideLauncher)
+            .sink { _ in hides += 1 }
+        let existing = AppItem(id: UUID(), name: "CommandBChecks", path: Bundle.main.bundlePath, unread: true)
+        store.apps = [existing]
+        await store.launch(existing)
+        record("Real application open succeeds and clears unread", store.launchError == nil && !store.apps[0].unread)
+        record("Successful launch requests hide", hides == 1)
+
+        let invalid = scratch.appendingPathComponent("Invalid.app")
+        try! FileManager.default.createDirectory(at: invalid, withIntermediateDirectories: true)
+        for path in [scratch.appendingPathComponent("Missing.app").path, invalid.path] {
+            let item = AppItem(id: UUID(), name: "打不开的应用", path: path, unread: true)
+            store.apps = [item]
+            let previousHides = hides
+            await store.launch(item)
+            record("Failed launch reports error for \(URL(fileURLWithPath: path).lastPathComponent)",
+                   store.launchError?.contains(item.name) == true)
+            record("Failed launch preserves unread and does not hide", store.apps[0].unread && hides == previousHides)
+            store.launchError = nil
+        }
+        let panel = LauncherPanel()
+        panel.show()
+        try? await Task.sleep(nanoseconds: 250_000_000)
+        await store.launch(AppItem(id: UUID(), name: "已移动的应用", path: scratch.appendingPathComponent("Moved.app").path))
+        try? await Task.sleep(nanoseconds: 250_000_000)
+        record("Launch error leaves launcher visible", panel.isVisible)
+        record("Launch error presents a visible sheet attached to launcher",
+               panel.attachedSheet?.isVisible == true,
+               "sheet=\(String(describing: panel.attachedSheet)); modal=\(String(describing: NSApp.modalWindow))")
+        store.launchError = nil
+        try? await Task.sleep(nanoseconds: 250_000_000)
+        panel.hide()
+        store.apps = []
+        withExtendedLifetime(subscription) {}
     }
 
     static func writeFixture(to url: URL) {
